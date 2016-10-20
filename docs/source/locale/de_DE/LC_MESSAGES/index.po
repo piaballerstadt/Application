@@ -1,0 +1,59 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2016, Pia Ballerstadt
+# This file is distributed under the same license as the Application
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2016.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Application 0.1\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2016-10-20 00:15+0200\n"
+"PO-Revision-Date: 2016-10-20 00:36+0200\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.3.4\n"
+"Language: de_DE\n"
+"X-Generator: Poedit 1.8.7.1\n"
+
+#: ../../source/index.rst:7
+msgid "Welcome to Application's documentation!"
+msgstr "Willkommen zur Dokumentation des \"Application\" Moduls!"
+
+#: ../../source/index.rst:9
+msgid ""
+"The :mod:`Application`-module provides some basic functionality useful "
+"for an application. This includes functions for simple *logging*, "
+"*configuration management*, *initialization*, *argument parsing* or "
+"simply *accessing platform specific paths* like paths for caches, "
+"logging files, configuration- or data files."
+msgstr ""
+"Das :mod:`Application`-Modul stellt einige Basisfunktionen für "
+"Anwendungen zur Verfügung. Diese beinhalten Funktionen für einfaches "
+"*Protokollieren*, *Konfigurationsmanagement*, *Internationalisierung*, "
+"*Kommandozeilenoptionen parsen* oder einfach nur *Zugang zu "
+"plattformspezifischen Pfaden*, z.B. für den Cache, Protokolldateien, "
+"Konfigurations- oder Datendateien."
+
+#: ../../source/index.rst:13
+msgid "Contents:"
+msgstr "Inhalt:"
+
+#: ../../source/index.rst:21
+msgid "Indices and tables"
+msgstr "Stichwortverzeichnis"
+
+#: ../../source/index.rst:23
+msgid ":ref:`genindex`"
+msgstr ":ref:`genindex`"
+
+#: ../../source/index.rst:24
+msgid ":ref:`modindex`"
+msgstr ":ref:`modindex`"
+
+#: ../../source/index.rst:25
+msgid ":ref:`search`"
+msgstr ":ref:`search`"
