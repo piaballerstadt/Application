@@ -1,2 +1,6 @@
+psutil
+pyspeedtest
+ipgetter
+babel
 appdirs>=1.4.0
 six>=1.10.0
