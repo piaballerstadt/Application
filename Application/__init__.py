@@ -60,18 +60,40 @@
 #                                             ^~"~---~~~~~~`#
 # @formatter:on
 
-""" provide basic logging, configuration management, i18n and argument parsing for any application """
+"""
+.. access user specific paths, initiate internationalization, manage configurations, generate argument parser
+
+.. module:: Application
+   :platform: Windows, Linux, macOS, OS X
+   :synopsis: access user specific paths, initiate internationalization, manage configurations, generate argument parser
+.. moduleauthor:: Lydia Seifert <piaballerstadt@googlemail.com>
+.. sectionauthor:: Lydia Seifert <piaballerstadt@googlemail.com>
+.. versionadded:: 0.1
+
+The :mod:`Application`-module extends the `appdirs <https://pypi.python.org/pypi/appdirs>`_-module and provides some
+basic functionality useful for an application. This includes functions for simple *logging*, *configuration management*,
+*initialization*, *argument parsing* or simply *accessing platform specific paths* like paths for caches, logging files,
+configuration- or data files.
+
+This module inherits many methods and attributes from `appdirs.AppDirs <https://pypi.python.org/pypi/appdirs>`_,
+a module written by Trent Mick and Sridhar Ratnakumar!
+
+.. seealso::
+
+   `appdirs <https://pypi.python.org/pypi/appdirs>`_
+"""
 
 from __future__ import print_function, division, unicode_literals
 import argparse
 import gettext
-import re
+import locale
+import platform
 import shutil
-import os
+import tarfile
 import tempfile
-from zipfile import ZipFile, ZIP_DEFLATED
-from logging import getLogger, Formatter, INFO, WARNING, ERROR
-from logging.handlers import TimedRotatingFileHandler
+from zipfile import ZipFile, ZIP_DEFLATED, is_zipfile
+import logging
+from logging.handlers import *
 import appdirs
 from datetime import datetime
 import six
@@ -82,53 +104,111 @@ try:
 except ImportError:
     __binding__ = 'console'
 
-__status__ = 'development'
-# Translate: Micha Grandel is a proper name
-__author__ = _('Micha Grandel')
+_ = unicode if six.PY2 else str
+
 __version__ = '0.1'
-# Translate: Micha Grandel is a proper name; "<3" should symbolize a heart in ascii characters
+__status__ = 'alpha'
+# Translate: Pia Ballerstadt is a proper name
+__author__ = _('Micha Grandel')
+__contact__ = 'https://github.com/michagrandel'
+# Translate: Pia Ballerstadt is a proper name; "<3" should symbolize a heart in ascii characters
 __copyright__ = _('written with <3 by Micha Grandel')
 # Translate: Apache is a company name; "Apache License" is the title of an open source license
 __license__ = _('Apache License, Version 2.0')
-__contact__ = 'https://github.com/michagrandel'
 
-_ = lambda x: six.u(x if isinstance(x, six.string_types) else str(x))
 
 class Application(appdirs.AppDirs):
-    """ basic logging, configuration management, i18n and argument parsing for any application """
+    """
+    The :class:`Application`-class extends the `appdirs.AppDirs <https://pypi.python.org/pypi/appdirs>`_-class and
+    provides some basic functionality useful for an application. In addition to AppDirs platform specific path's,
+    the Application class includes functions for simple *logging*, *configuration management*, *internationalization*,
+    and *argument parsing*.
 
-    def __init__(self, author=__author__):
+    This class inherits many methods and attributes from `appdirs.AppDirs <https://pypi.python.org/pypi/appdirs>`_,
+    a module written by Trent Mick and Sridhar Ratnakumar!
+
+    :param unicode appname: application name
+    :param unicode appauthor: application author
+
+    .. attribute:: user_config_dir
+
+        user's directory for configuration files
+
+        Inherited from `appdirs.AppDirs <https://pypi.python.org/pypi/appdirs>`_.
+
+    .. attribute:: user_cache_dir
+
+        user's directory for caches
+
+        Inherited from `appdirs.AppDirs <https://pypi.python.org/pypi/appdirs>`_.
+
+    .. attribute:: user_log_dir
+
+        user's directory for logfiles
+
+        Inherited from `appdirs.AppDirs <https://pypi.python.org/pypi/appdirs>`_.
+
+    .. attribute:: user_data_dir
+
+        user's directory for application data
+
+        Inherited from `appdirs.AppDirs <https://pypi.python.org/pypi/appdirs>`_.
+    """
+
+    def __init__(self, appname, appauthor):
         """
         initialize Application
 
-        :param author: application author
+        :param unicode appname: application name
+        :param unicode appauthor: application author
         """
-        super(Application, self).__init__(appname=__name__.split('.')[0], appauthor=author, roaming=True)
+        super(Application, self).__init__(appname=appname, appauthor=appauthor, roaming=True)
+        global __author__
+        global __copyright__
+        __author__ = appauthor
+        __copyright__ = 'written with <3 by {author}'.format(author=appauthor)
+        locale.setlocale(locale.LC_ALL, '')
         self._configuration = dict()
         self.language_search_locations = []
-        self._loggers = []
-        self.suffix = {
-            'config': '.conf',  # suffix used for configuration files
-            'log':    '.log',  # suffix used for configuration files
-        }
-        self.logger()
+        self._locale_path = os.path.join(self.user_data_dir, 'languages')
+
+        self._language_filepack_pattern = re.compile(
+            r'^%(name)s-[a-z]{2}_[A-Z]{2}(\.mo|\.qm|\.tar\.gz|\.zip)?$' % {'name': self.appname.lower()})
+        self._language_file_pattern = re.compile(r'^%(name)s-[a-z]{2}_[A-Z]{2}(\.mo|\.qm)?$')
+        global _
+        _ = self._ = self.ugettext = unicode if six.PY2 else str
+        self.languages()
 
     def configuration(self, filename=None, default=None):
         """
-        read and write configuration files and returns according configparser
+        read and write configuration files and returns configuration
 
-        :param filename: filename to read and store configuration
-        :param default: dict with default values if no configuration file is found
-        :return: configparser
+        If no file with *filename* exists, a file will created with the `default` values inside the configuration path.
+        If *filename* is `None`, a default file named after the application will be used. It will be stored in the
+        application's configuration path.
+
+        The configuration file has to be in the `configparser <https://docs.python.org/2/library/configparser.html>`_ Format.
+
+        :param unicode filename: configuration file
+        :param dict default: default values if no configuration file is found
+        :return: configuration
+        :rtype: `configparser <https://docs.python.org/2/library/configparser.html>`_
+
+        .. seealso::
+
+            Module `configparser <https://docs.python.org/2/library/configparser.html>`_:
+               Parse configuration data
         """
-        filename = filename or os.path.join(self.user_config_dir, self.appname.lower() + self.suffix['config'])
+        filename = os.path.abspath(os.path.expanduser(filename)) or \
+            os.path.join(self.user_config_dir, self.appname.lower() + '.conf')
         default = default or {}
 
         try:
-            return self._configuration[os.path.splitext(os.path.basename(self._configuration))[0]]
+            return self._configuration[os.path.splitext(os.path.basename(filename))[0]]
         except KeyError:
             configuration = configparser.ConfigParser(allow_no_value=True)
-            configuration.optionxform = lambda s: six.u(str(s))
+            # fixme: replace unicode()-call with code compatible with python2 AND python3
+            configuration.optionxform = lambda s: unicode(s) if six.PY2 else str(s)
 
             for section, keyvalues in six.iteritems(default):
                 try:
@@ -143,145 +223,167 @@ class Application(appdirs.AppDirs):
                     configuration.write(config_file)
             except OSError:
                 pass
-            self._configuration[os.path.splitext(os.path.basename(self._configuration))[0]] = configuration
-            return self._configuration[os.path.splitext(os.path.basename(self._configuration))[0]]
+            self._configuration[os.path.splitext(os.path.basename(filename))[0]] = configuration
+            return self._configuration[os.path.splitext(os.path.basename(filename))[0]]
 
-    def logger(self, name=None, level=WARNING):
+    def extract_languages_from_archive(self, archive_file):
         """
-        create default logger with <name> and <level>
+        extract .qm- and .mo-files from *archive_file* and stores them in the directory for translation files.
 
-        :param name: name of logger, default: appname
-        :param level: level of logger, default: logging.WARNING
-        :return:
+        :param unicode archive_file: filename of an archive file
+        :return: count of extracted files
+        :rtype: int
+
+        Supported archive formats include ZIP-Files (.zip), TAR-Files (.tar), Compressed TAR-Files (.tar.gz, .tgz).
+
+        Extracted .mo-files will be stored in *user_data_dir*/language/*languagecode*/LC_MESSAGES/\*.mo,
+        while .qm-files will be stored in *user_data_dir*/language/*languagecode*/\*.qm.
+
+        `user_data_dir` is replaced by self.user_data_dir.
+
+        `languagecode` is the language code of the target language of the translation files, e.g. en_US, de_DE etc.
+
+        .. seealso::
+
+           Module `appdirs <https://pypi.python.org/pypi/appdirs>`_:
+              A small Python module for determining appropriate platform-specific dirs, e.g. a user data dir
         """
-        name = name or self.appname.lower()
+        archive_file = os.path.abspath(archive_file)
+        domain, language = os.path.splitext(os.path.basename(archive_file))[0].split('-')
+        count_extracted_files = 0
+        logger = logging.getLogger(self.appname.lower())
 
-        if name not in self._loggers:
-            logger = getLogger(name)
+        if is_zipfile(archive_file):
             try:
-                os.makedirs(self.user_log_dir)
-                logging_file_handler = TimedRotatingFileHandler(
-                    os.path.join(self.user_log_dir, self.appname.lower() + self.suffix['log']), when='h', interval=1,
-                    backupCount=5, encoding='utf-8')
-                logging_file_handler.setLevel(level)
-                logging_file_handler.setFormatter(
-                    Formatter('%(asctime)s    %(levelname)s   %(message)s', datefmt='%x %X'))
-                logger.addHandler(logging_file_handler)
-            except (OSError, IOError) as e:
-                pass
-            self._logger.append(name)
-        return getLogger(name)
+                with ZipFile(archive_file, 'r', compression=ZIP_DEFLATED) as language_archive:
+                    for name in language_archive.namelist():
+                        if self._language_file_pattern.match(name) is not None:
+                            target_path = os.path.join(self._locale_path, language)
+                            if os.path.splitext(name)[1] == '.mo':
+                                target_path = os.path.join(target_path, 'LC_MESSAGES')
+                            os.makedirs(target_path)
+                            language_archive.extract(name, path=target_path)
+                            count_extracted_files += 1
+            except (RuntimeError, OSError):
+                logger.warning('Can not extract files from {archive}.'.format(archive=os.path.basename(archive_file)))
+                return -1
+        elif tarfile.is_tarfile(archive_file):
+            try:
+                with tarfile.open(archive_file, mode='r:gz') as language_archive:
+                    for name in language_archive.getnames():
+                        if self._language_file_pattern.match(name) is not None:
+                            target_path = os.path.join(self._locale_path, language)
+                            if os.path.splitext(name)[1] == '.mo':
+                                target_path = os.path.join(target_path, 'LC_MESSAGES')
+                            os.makedirs(target_path)
+                            language_archive.extract(name, path=target_path)
+                            count_extracted_files += 1
+            except (RuntimeError, OSError, tarfile.ReadError, tarfile.CompressionError):
+                logger.warning('Can not extract files from {archive}.'.format(archive=os.path.basename(archive_file)))
+                return -1
+        else:
+            logger.warning('{archive} is not a supported archive type.'.format(archive=os.path.basename(archive_file)))
+            return -1
+        return count_extracted_files
 
-    def languages(self, **kwargs):
+    def languages(self):
         """
         copy language files from search directories to language directory
 
-        :param kwargs: Additional Options
-        :return:
+        :return: root directory for internationalization related files
+
+        Copy .mo-files to *user_data_dir*/language/*languagecode*/LC_MESSAGES/\*.mo,
+        and copy .qm-files to *user_data_dir*/language/*languagecode*/\*.qm.
+
+        `user_data_dir` is replaced by self.user_data_dir.
+
+        `languagecode` is the language code of the target language of the translation files, e.g. en_US, de_DE etc.
+
+        .. seealso::
+
+           Module `appdirs <https://pypi.python.org/pypi/appdirs>`_:
+              A small Python module for determining appropriate platform-specific dirs, e.g. a user data dir
+
         """
-        try:
-            return self._locale_path
-        except AttributeError:
-            # set directories to look for translation files (*.mo) language_search_directories=[]
-            qt_engines = (
-                'qt', 'pyside', 'pyside2', 'pyqt', 'pyqt4', 'pyqt5', 'qt linguist', 'qtlinguist', 'qtranslator')
 
-            # @formatter:off
-            # paths to search for language files
-            self.language_search_locations.extend((
-                os.path.join('~/Projects', self.appname.lower()),
-                os.path.join('~/Projekte', self.appname.lower()),
-                os.path.join(self.user_data_dir, 'lang'),
-                os.path.join(self.user_data_dir, 'language'),
-                os.path.join(self.user_data_dir, 'translations'),
-                os.path.join(self.user_data_dir, 'translation'),
-                os.path.join(self.user_data_dir, 'locale')))
-            # @formatter:on
+        # @formatter:off
+        # paths to search for language files
+        self.language_search_locations.extend((
+            os.path.join('~/Projects', self.appname.lower()),
+            os.path.join('~/Projekte', self.appname.lower()),
+            os.path.join(self.user_data_dir, 'lang'),
+            os.path.join(self.user_data_dir, 'language'),
+            os.path.join(self.user_data_dir, 'translations'),
+            os.path.join(self.user_data_dir, 'translation'),
+            os.path.join(self.user_data_dir, 'locale')))
+        # @formatter:on
 
-            # search .qm- and .mo-files in language_search_directories
-            self._locale_path = os.path.join(self.user_data_dir, 'languages')
-            translation_files = dict()
-            for language_search_directory in self.language_search_locations:
-                language_search_directory = os.path.abspath(os.path.expanduser(language_search_directory))
-
-                language_file_pattern = r'^%(name)s-[a-z]{2}_[A_Z]{2}(\.mo|\.qm|\.tar\.gz|\.zip)?$'
-                language_file_pattern = re.compile(language_file_pattern % {'name': self.appname.lower()})
-
-                # language_archive_pattern = r'^%(name)s-[a-z]{2}_[A_Z]{2}(\.tar\.gz|\.zip)?$'
-                # language_archive_pattern = re.compile(language_archive_pattern % {'name': self.appname.lower()})
-
+        # search .qm- and .mo-files in language_search_directories
+        for language_search_directory in self.language_search_locations:
+            language_search_directory = os.path.abspath(os.path.expanduser(language_search_directory))
+            try:
                 for original_file in os.listdir(language_search_directory):
                     # handle translation files
-                    if language_file_pattern.match(original_file) != None:
+                    if self._language_filepack_pattern.match(original_file) is not None:
                         if not os.path.exists(self._locale_path):
-                            try:
-                                os.makedirs(self._locale_path)
-                                domain, language = os.path.splitext(original_file)[0].split('-')
+                            os.makedirs(self._locale_path)
+                            domain, language = os.path.splitext(original_file)[0].split('-')
 
-                                if os.path.splitext(original_file)[1] == '.zip':
-                                    try:
-                                        with ZipFile(original_file, 'r', compression=ZIP_DEFLATED) as language_archive:
-                                            for name in language_archive.namelist():
-                                                extract_path = os.path.join(self._locale_path, language)
-                                                if os.path.splitext(name)[1] == '.mo':
-                                                    extract_path = os.path.join(extract_path, 'LC_MESSAGES')
-                                                os.makedirs(extract_path)
-                                                language_archive.extract(name, path=extract_path)
-                                    except RuntimeError:
-                                        pass
-                                elif original_file.endswith('.tar.gz'):
-                                    # todo: extract translation files from TAR.GZ archive
-                                    pass
-                                else:
-                                    original_file = os.path.join(language_search_directory, original_file)
-                                    copy_to_path = os.path.join(self._locale_path, language)
+                            if os.path.splitext(original_file)[1] == '.zip':
+                                self.extract_languages_from_archive(
+                                    os.path.join(language_search_directory, original_file))
 
-                                    if os.path.splitext(original_file)[1] == '.mo':
-                                        copy_to_path = os.path.join(extract_path, 'LC_MESSAGES')
+                            elif original_file.endswith('.tar.gz') or os.path.splitext(original_file)[1] == '.tgz':
+                                self.extract_languages_from_archive(
+                                    os.path.join(language_search_directory, original_file))
+                            else:
+                                original_file = os.path.join(language_search_directory, original_file)
+                                target_path = os.path.join(self._locale_path, language)
 
-                                    shutil.copy2(
-                                        original_file,
-                                        os.path.join(copy_to_path, domain + os.path.splitext(original_file)[1]))
+                                if os.path.splitext(original_file)[1] == '.mo':
+                                    target_path = os.path.join(target_path, 'LC_MESSAGES')
 
-                            except (OSError, IOError):
-                                pass
-            _ = gettext.translation(self.appname, self._locale_path, fallback=True).ugettext
-            return self._locale_path
+                                shutil.copy2(original_file,
+                                             os.path.join(target_path, domain + os.path.splitext(original_file)[1]))
+
+            except (OSError, IOError):
+                pass
+        global _
+        _ = self._ = self.ugettext = gettext.translation(self.appname, self._locale_path, fallback=True).ugettext
+        return self._locale_path
 
     def parser(self, csvdata, **kwargs):
         """
-        setup a parser to parse command line arguments using CSV data (tab-separated).
+        setup a argparser to parse command line arguments using *csvdata* (tab-separated).
 
-        :param csvdata: CSV data (tab-separated)
+        :param unicode csvdata: CSV data (tab-separated)
+        :param kwargs: additonal keyword arguments as described in "additional options"
         :return: parser or False
+        :rtype: argparse.parser or boolean
 
-        The data must include the following columns: Argument Flags, Action, Group, Help, Other Options.
+        The csvdata must include the following columns: Argument Flags, Action, Group, Help, Other Options.
+
         The arguments are very similar to the argparse parser, because all arguments are used in an add_argument-method.
 
-        Argument Flags, Action, Group, Help
-        ...................................
+        .. seealso::
 
-        Most columns should be self-explaining. Read the documentation of the argparse module, if you have any questions
+            Module `argparse <https://docs.python.org/2/library/argparse.html>`_:
+               The argparse module makes it easy to write user-friendly command-line interfaces.
 
-        Other Options
-        .............
+        Additional Options
+        ------------------
 
-        All options not covered in the other columns, can be added to the other options column. You may add multiple
-        options in this column, each separated with a semicolon. Most options consist of some key-value-pair, where
-        the key and the value is separated by =, e.g. key=value. For booleans, you might just add the key without value.
-
-        Examples for other options include:
-
-        * choices=yes,no;default=no
-        * default=False
+        :add_help:
+           adds a '-h' argument to the parser that shows the help and exit the application afterwards
+        :doc:
+           help that will show when the user uses -h or --help as command line argument
 
         """
-        self.languages(data_dir=self.user_data_dir)
-        _ = gettext.translation(self.appname, self._locale_path, fallback=True).ugettext
+        self.languages()
 
         # @formatter:off
         parser = argparse.ArgumentParser(
-            prog=__name__.split('.')[0].lower(), description=__doc__, add_help=kwargs.get('add_help', False),
+            prog=__name__.split('.')[0].lower(), description=kwargs.get('doc', ''), add_help=kwargs.get('add_help', False),
             formatter_class=argparse.RawDescriptionHelpFormatter
         )
         # @formatter:on
@@ -294,7 +396,7 @@ class Application(appdirs.AppDirs):
         for n, row in enumerate(reader):
             # parse flags and options
             args, kwargs = Application._parse_flag_options(flags=row[0], action=row[1], help_=row[3],
-                other_options=row[4])
+                                                           other_options=row[4])
 
             # check group column
             if len(row[2]) > 0:
@@ -308,13 +410,91 @@ class Application(appdirs.AppDirs):
                 parser.add_argument(*args, **kwargs)
         return parser
 
-    def reset(self, parts, **kwargs):
+    def setup_logging_handlers(self, handlers, logger, syslog, **kwargs):
         """
-        resets application
+        add default handlers to *logger* and *syslog*
 
-        let you delete precicely any application related file.
-        parts contains what you want to delete:
+        :param handlers: string with handler keywords
+        :param kwargs: additional options
+        :param logger: logger instance for normal logging
+        :param syslog: logger instance for logging to syslog
+        :return: logger and syslog instances, setup with handlers
+        """
+        syslog_formatter_str = __name__ + '[%(lineno)s]: %(levelname)s: %(asctime)s: %(funcName)s() \'%(message)s\''
+        formatter = {
+            'simple':   logging.Formatter('%(message)s'),  # used for verbose messages
+            'messages': logging.Formatter('# %(levelname)s: %(message)s'),  # currently not used at all
+            'extended': logging.Formatter('%(asctime)s    %(levelname)s   %(message)s', datefmt='%x %X'),  # log to file
+            'syslog':   logging.Formatter(syslog_formatter_str)
+        }
 
+        for handler in handlers:
+            if handler.lower() in ('stream', 'debug') and not any(
+                    isinstance(handler, logging.StreamHandler) for handler in logger.handlers):
+                logging_error_handler = logging.StreamHandler()
+
+                if handler.lower() == 'debug':
+                    logging_error_handler.setLevel(logging.DEBUG)
+                elif handler.lower() == 'stream':
+                    verbose_level = [logging.ERROR, logging.INFO, logging.INFO, logging.DEBUG]
+                    logging_error_handler.setLevel(verbose_level[kwargs.get('verbose', 0)])
+
+                logging_error_handler.setFormatter(formatter['simple'])
+                logger.addHandler(logging_error_handler)
+
+            elif handler.lower() == 'file' and not any(
+                    isinstance(handler, logging.FileHandler) for handler in logger.handlers):
+                try:
+                    os.makedirs(self.user_log_dir)
+                    logging_file_handler = TimedRotatingFileHandler(
+                        os.path.join(self.user_log_dir, __name__.split('.')[0].lower() + '.log'), when='h', interval=1,
+                        backupCount=5, encoding='utf-8')
+                    logging_file_handler.setLevel(logging.INFO)
+                    logging_file_handler.setFormatter(formatter['extended'])
+                    logger.addHandler(logging_file_handler)
+                    print('Logging to {}'.format(logging_file_handler.baseFilename))
+                except (OSError, IOError):
+                    # handle this behind the loop
+                    # because maybe there is no streamhandler configured yet,
+                    # but will be later
+                    pass
+
+            elif any(keyword in handler.lower() for keyword in ('sys', 'nt', 'event')) and not any(
+                    isinstance(handler, SysLogHandler) for handler in logger.handlers):
+                print('setup syslog')
+                syslog.setLevel(logging.DEBUG)
+                try:
+                    servernames = self._configuration[self.appname.lower()].get('Logging', 'Disable syslog on')
+                    servernames = servernames.split(',')
+                except KeyError:
+                    servernames = ['uberspace']
+                if not any(name in platform.node().lower() for name in [hostname.strip() for hostname in servernames]):
+                    logging_sys_handler = SysLogHandler(address='/dev/log')
+                else:
+                    syslog_file = os.path.join(self.user_log_dir, 'syslog.log')
+                    logging_sys_handler = TimedRotatingFileHandler(syslog_file, backupCount=5, encoding='utf-8')
+
+                logging_sys_handler.setLevel(logging.INFO)
+                logging_sys_handler.setFormatter(formatter['syslog'])
+                syslog.addHandler(logging_sys_handler)
+            else:
+                print('Unknown handler ' + handler.lower())
+
+        # react if initializing file handler for logging didn't work
+        if 'file' in handlers and not any(isinstance(handler, logging.FileHandler) for handler in logger.handlers):
+            syslog.error('''Can't create logging file '{file}'.'''.format(
+                file=os.path.join(self.user_log_dir, __name__.split('.')[0].lower() + '.log')))
+        return logger, syslog
+
+    def reset(self, parts):
+        """
+        delete precisely any application related file.
+
+        :param parts: code for what to delete (see table below)
+        :type parts: unicode or list
+        :return: True if successful, False if not
+
+        ================== ===========================================================================================
         value for parts    what it will delete
         ================== ===========================================================================================
         language           deletes all language files
@@ -324,12 +504,12 @@ class Application(appdirs.AppDirs):
         data               deletes all data files, like images, icons, fonts etc. (warning: include language files)
         ================== ===========================================================================================
 
-        :param parts: string or list of strings with codes for what to delete (see table above)
-        :return: True if successful, False if not
+        Combine any parts in lists of parts to select and delete multiple parts at once.
+
         """
         if isinstance(parts, (six.string_types, six.text_type)):
             parts = [parts.lower()]
-
+        logger = logging.getLogger(self.appname.lower())
         for part in parts:
             folder = {
                 'language': self.user_cache_dir, 'configuration': self.user_config_dir, 'cache': self.user_cache_dir,
@@ -341,7 +521,7 @@ class Application(appdirs.AppDirs):
             elif part == 'data':
                 backup_path = os.path.join(tempfile.gettempdir(), 'data_' + datetime.utcnow().strftime('%H%M%S'))
                 shutil.copytree(os.path.join(self.user_data_dir, 'languages'), backup_path)
-            self.logger().warning('Reseting all {} files ...'.format(part))
+            logger.warning('Reseting all {} files ...'.format(part))
             shutil.rmtree(folder)
             if part == 'cache':
                 shutil.copytree(backup_path, self.user_log_dir)
@@ -351,7 +531,10 @@ class Application(appdirs.AppDirs):
     @staticmethod
     def _string2value(value):
         """
-        parses a given value (string?) and return valid python values
+        parses a given *value* and return valid python values
+
+        :param value: value to convert
+        :return: number or boolean
 
         Parsing table:
 
@@ -360,9 +543,6 @@ class Application(appdirs.AppDirs):
         Numeric strings  1, 2, 3, 2.3, 5.6          int(x) or float(x)
         Boolean Strings  True/False, On/Off, Yes/No True or False
         ================ ========================== ===================
-
-        >>> [string2value(x) for x in '1 1.2 TRUE Off No'.split()]
-        [1, 1.2, True, False, False]
         """
         result = value
 
