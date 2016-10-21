@@ -88,7 +88,7 @@ from dateutil import tz
 import six
 from six.moves import configparser
 
-from Application import Application, Sniffer
+from Application import Application, sniffer
 
 try:
     from Qt import __binding__
@@ -246,7 +246,7 @@ def main(started_at=None):
     # See http://strftime.org for details.
     logger.info('{application} started at {time}'.format(application=application.appname.lower(), time=app_started_at))
 
-    record = Sniffer.record(detailed=True, format='json', cache=application.user_cache_dir)
+    record = sniffer.record(detailed=True, format='json', cache=application.user_cache_dir)
     if record.startswith('"'):
         record = record[1:]
     if record.endswith('"'):
